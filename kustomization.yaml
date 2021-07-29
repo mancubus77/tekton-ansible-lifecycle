@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - base/configmap.yaml
+  - base/tekton/tasks/ansible-task.yaml
+  - base/tekton/tasks/buildah.yaml
+  - base/tekton/pipeline/pipeline.yaml

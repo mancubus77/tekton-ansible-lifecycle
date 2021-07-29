@@ -1,0 +1,102 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: ansible-build
+spec:
+  params:
+    - description: ansible tower tag from Red Hat Catalogue (eg 8.3.3)
+      name: tower-image
+      type: string
+      default: "3.8.3"
+    - description: git repo with environments
+      name: venv-repo
+      type: string
+      default: "https://gitlab.com/skozlov1/ansible-tower-environments.git"
+    - description: >-
+        Release version from
+        https://releases.ansible.com/ansible-tower/setup_openshift/ (eg
+        ansible-tower-openshift-setup-3.8.3.tar.gz)
+      name: ansible-installer
+      type: string
+      default: "https://releases.ansible.com/ansible-tower/setup_openshift/ansible-tower-openshift-setup-3.8.3-1.tar.gz"
+
+  tasks:
+    - name: import-tower-image
+      params:
+        - name: SCRIPT
+          value: >-
+            oc import-image
+            ansible-tower-38/ansible-tower-rhel7:$(params.tower-image)
+            --from=registry.redhat.io/ansible-tower-38/ansible-tower-rhel7:$(params.tower-image)
+            --confirm
+        - name: ARGS
+          value:
+            - help
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+
+    - name: ansible-lifecycle
+      params:
+        - name: SCRIPT
+          value: oc help
+        - name: VERSION
+          value: '4.7'
+        - name: tower-version
+          value: $(params.tower-image)
+        - name: ansible-installer
+          value: $(params.ansible-installer)
+      runAfter:
+        - buildah
+      taskRef:
+        kind: Task
+        name: ansible-lifecycle
+
+    - name: git-clone
+      params:
+        - name: url
+          value: $(params.venv-repo)
+        - name: submodules
+          value: 'true'
+        - name: depth
+          value: '1'
+        - name: sslVerify
+          value: 'true'
+        - name: deleteExisting
+          value: 'true'
+        - name: verbose
+          value: 'true'
+      runAfter:
+        - import-tower-image
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+    - name: buildah
+      params:
+        - name: IMAGE
+          value: $(params.tower-image)
+        - name: BUILDER_IMAGE
+          value: 'quay.io/buildah/stable:v1.15.1'
+        - name: STORAGE_DRIVER
+          value: overlay
+        - name: DOCKERFILE
+          value: ./Dockerfile
+        - name: CONTEXT
+          value: .
+        - name: TLSVERIFY
+          value: 'true'
+        - name: FORMAT
+          value: oci
+      runAfter:
+        - git-clone
+      taskRef:
+        kind: Task
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+  workspaces:
+    - name: shared-workspace

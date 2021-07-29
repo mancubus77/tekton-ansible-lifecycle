@@ -1,0 +1,69 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: ansible-lifecycle
+  labels:
+    app.kubernetes.io/version: "0.2"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.17.0"
+    tekton.dev/tags: cli
+    tekton.dev/displayName: "openshift client"
+spec:
+  description: >-
+    This task contains script to to run ansible-installed on openshift
+    To let task works Tekton or other serive account needs an admin rights for namespace
+  params:
+    - name: tower-version
+      description: ansible tower image from Red Hat Catalogue
+      type: string
+    - name: SCRIPT
+      description: The OpenShift CLI arguments to run
+      type: string
+      default: "oc help"
+    - name: VERSION
+      description: The OpenShift Version to use
+      type: string
+      default: "4.7"
+    - name: ansible-installer
+      type: string
+  steps:
+    - name: oc
+      image: 'image-registry.openshift-image-registry.svc:5000/openshift/cli:latest'
+      script: |
+        #!/usr/bin/env bash
+        python3 -m venv .ansible
+        source .ansible/bin/activate
+        pip install --upgrade pip
+        pip install ansible==2.9.5
+        wget $(params.ansible-installer) -O ansible.tar.gz
+        mkdir ansible
+        tar xvf ansible.tar.gz --strip-components=1 -C ansible
+        OS_URL=$(oc status | grep "on server" | grep -oP 'on server \K.*')
+        echo "OCP URL: $OS_URL"
+        cat /workspace/inventory | sed -r "s@^.+?openshift_host.*@openshift_host=$OS_URL@g" > /workspace/inventory.mod
+        sed -i -r "s/^.+?openshift_skip_tls_verify=.*/openshift_skip_tls_verify=true/g" /workspace/inventory.mod
+        sed -i -r "s/^.+?openshift_pg_emptydir=.*/openshift_pg_emptydir=true/g" /workspace/inventory.mod
+        TOKEN=$(oc serviceaccounts get-token pipeline)
+        #echo $TOKEN
+        #export
+        #cat /workspace/inventory.mod
+        sh /workspace/ansible/setup_openshift.sh \
+        -i /workspace/inventory.mod \
+        -e openshift_token=$TOKEN \
+        -e kubernetes_awx_image=image-registry.openshift-image-registry.svc:5000/$(context.taskRun.namespace)/tower-venv \
+        -e kubernetes_awx_version=$(params.tower-version) \
+        -e tower_package_version=$(params.tower-version)
+
+      volumeMounts:
+      - name: ansible-inventory
+        mountPath: "/workspace/inventory"
+        subPath: "inventory"
+#      securityContext:
+#        privileged: true
+
+  volumes:
+  - name: ansible-inventory
+    secret:
+      defaultMode: 0600
+      secretName: ansible-inventory
