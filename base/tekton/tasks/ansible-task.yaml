@@ -64,6 +64,8 @@ spec:
 
   volumes:
   - name: ansible-inventory
-    secret:
-      defaultMode: 0600
-      secretName: ansible-inventory
+    configMap:
+      name: ansible-inventory
+#     secret:
+#       defaultMode: 0600
+#       secretName: ansible-inventory
